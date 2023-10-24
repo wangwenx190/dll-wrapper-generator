@@ -154,10 +154,12 @@ using Functions = std::vector<Function>;
 [[nodiscard]] static inline bool generateWrapper(const std::string_view filePath, const std::string_view dllFileName, const Functions &functions)
 {
     if (filePath.empty() || dllFileName.empty() || functions.empty()) {
+        std::cerr << "generateWrapper: invalid parameter" << std::endl;
         return false;
     }
     std::ofstream out(std::string(filePath), std::ios::out | std::ios::trunc);
     if (!out.is_open()) {
+        std::cerr << "Failed to open file to write:" << filePath << std::endl;
         return false;
     }
     out << "#include <windows.h>" << std::endl;
@@ -220,6 +222,9 @@ using Functions = std::vector<Function>;
         out << '}' << std::endl;
         out << std::endl;
     }
+    //out.flush();
+    out.close();
+    std::cout << "The wrapper source is successfully generated." << std::endl;
     return true;
 }
 
@@ -248,30 +253,42 @@ extern "C" int __stdcall main(int, char **)
     rootCommand.addOption(inputOption);
     rootCommand.addOption(outputOption);
     rootCommand.addOption(dllFileNameOption);
-    rootCommand.setHandler([&inputArgument, &outputArgument, &dllFileNameArgument](const SysCmdLine::ParseResult &result) -> int {
-        const std::vector<SysCmdLine::Value> inputFiles = result.valuesForArgument(inputArgument);
-        const SysCmdLine::Value outputFile = result.valueForArgument(outputArgument);
-        const SysCmdLine::Value dllFileName = result.valueForArgument(dllFileNameArgument);
+    rootCommand.setHandler([&](const SysCmdLine::ParseResult &result) -> int {
+        const auto inputFiles = [&]() -> std::vector<SysCmdLine::Value> {
+            const int optionCount = result.optionCount(inputOption);
+            if (optionCount <= 0) {
+                return {};
+            }
+            std::vector<SysCmdLine::Value> values = {};
+            for (int index = 0; index != optionCount; ++index) {
+                values.push_back(result.valueForOption(inputOption, inputArgument, index));
+            }
+            return values;
+        }();
+        const SysCmdLine::Value outputFile = result.valueForOption(outputOption, outputArgument);
+        const SysCmdLine::Value dllFileName = result.valueForOption(dllFileNameOption, dllFileNameArgument);
         if (inputFiles.empty()) {
-            std::cerr << "You need to specify at least one valid header file path (including the file extension name).";
+            std::cerr << "You need to specify at least one valid header file path (including the file extension name)." << std::endl;
             return EXIT_FAILURE;
         }
         if (outputFile.isEmpty()) {
-            std::cerr << "You need to specify a valid output file path (including the file extension name).";
+            std::cerr << "You need to specify a valid output file path (including the file extension name)." << std::endl;
             return EXIT_FAILURE;
         }
         if (dllFileName.isEmpty()) {
-            std::cerr << "You need to specify a valid DLL file name (better to include the file extension name as well).";
+            std::cerr << "You need to specify a valid DLL file name (better to include the file extension name as well)." << std::endl;
             return EXIT_FAILURE;
         }
         Functions allFunctions = {};
         for (auto &&inputFile : std::as_const(inputFiles)) {
-            const std::string filePath = inputFile.toString();
             Functions functions = {};
-            if (!parseTranslationUnit(filePath, functions) || functions.empty()) {
+            if (!parseTranslationUnit(inputFile.toString(), functions) || functions.empty()) {
                 return EXIT_FAILURE;
             }
             allFunctions.insert(allFunctions.end(), functions.begin(), functions.end());
+        }
+        if (allFunctions.empty()) {
+            return EXIT_FAILURE;
         }
         if (!generateWrapper(outputFile.toString(), dllFileName.toString(), allFunctions)) {
             return EXIT_FAILURE;

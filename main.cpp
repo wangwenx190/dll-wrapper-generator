@@ -1,8 +1,41 @@
+/*
+ * MIT License
+ *
+ * Copyright (C) 2023 by wangwenx190 (Yuhang Zhao)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+#include <syscmdline/system.h>
+#include <syscmdline/option.h>
+#include <syscmdline/command.h>
+#include <syscmdline/parser.h>
 #include <clang-c/Index.h>
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <clocale>
+#ifdef WIN32
+#  include <windows.h>
+#endif
 
 namespace std
 {
@@ -64,6 +97,8 @@ using Functions = std::vector<Function>;
     static bool insideParameterList = false;
     const uint32_t parseResult = ::clang_visitChildren(cursor,
         [](CXCursor currentCursor, CXCursor parentCursor, CXClientData clientData) -> CXChildVisitResult {
+            static_cast<void>(parentCursor);
+            static_cast<void>(clientData);
             switch (::clang_getCursorKind(currentCursor)) {
             case CXCursor_FunctionDecl: {
                 const CXLinkageKind linkage = ::clang_getCursorLinkage(currentCursor);
@@ -116,82 +151,136 @@ using Functions = std::vector<Function>;
     return true;
 }
 
-[[nodiscard]] static inline bool generateWrapper(const std::string_view dll, const Functions &functions)
+[[nodiscard]] static inline bool generateWrapper(const std::string_view filePath, const std::string_view dllFileName, const Functions &functions)
 {
-    if (functions.empty()) {
+    if (filePath.empty() || dllFileName.empty() || functions.empty()) {
         return false;
     }
-    std::cout << "#include <windows.h>" << std::endl;
-    std::cout << std::endl;
-    std::cout << "static constexpr const wchar_t kDllFileName[] = \"" << dll << "\";" << std::endl;
-    std::cout << "static constinit HMODULE g_library = nullptr;" << std::endl;
-    std::cout << "static constinit bool g_libraryNotAvailable = false;" << std::endl;
-    std::cout << std::endl;
+    std::ofstream out(std::string(filePath), std::ios::out | std::ios::trunc);
+    if (!out.is_open()) {
+        return false;
+    }
+    out << "#include <windows.h>" << std::endl;
+    out << std::endl;
+    out << "static constexpr const wchar_t kDllFileName[] = \"" << dllFileName << "\";" << std::endl;
+    out << "static constinit HMODULE g_library = nullptr;" << std::endl;
+    out << "static constinit bool g_libraryNotAvailable = false;" << std::endl;
+    out << std::endl;
     for (auto &&function : std::as_const(functions)) {
-        std::cout << "extern \"C\" " << function.resultType;
+        out << "extern \"C\" " << function.resultType;
         if (!(isPointerType(function.resultType) || isReferenceType(function.resultType))) {
-            std::cout << ' ';
+            out << ' ';
         }
-        std::cout << "__stdcall " << function.name << '(';
+        out << "__stdcall " << function.name << '(';
         std::size_t parameterIndex = 1;
         for (auto &&parameter : std::as_const(function.parameters)) {
-            std::cout << parameter;
+            out << parameter;
             if (!(isPointerType(parameter) || isReferenceType(parameter))) {
-                std::cout << ' ';
+                out << ' ';
             }
-            std::cout << "arg" << parameterIndex;
+            out << "arg" << parameterIndex;
             if (parameterIndex < function.parameters.size()) {
                 ++parameterIndex;
-                std::cout << ", ";
+                out << ", ";
             }
         }
         const std::string prototypeName = "PFN_" + toUpper(function.name);
         const std::string pointerName = "pfn_" + toLower(function.name);
-        std::cout << ')' << std::endl;
-        std::cout << '{' << std::endl;
-        std::cout << "    using " << prototypeName << " = decltype(&::" << function.name << ");" << std::endl;
-        std::cout << "    static const auto " << pointerName << " = []() -> " << prototypeName << " {" << std::endl;
-        std::cout << "        if (g_libraryNotAvailable) {" << std::endl;
-        std::cout << "            return nullptr;" << std::endl;
-        std::cout << "        }" << std::endl;
-        std::cout << "        if (!g_library) {" << std::endl;
-        std::cout << "            g_library = ::LoadLibraryExW(kDllFileName, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);" << std::endl;
-        std::cout << "            if (!g_library) {" << std::endl;
-        std::cout << "                g_libraryNotAvailable = true;" << std::endl;
-        std::cout << "                return nullptr;" << std::endl;
-        std::cout << "            }" << std::endl;
-        std::cout << "        }" << std::endl;
-        std::cout << "        return reinterpret_cast<" << prototypeName << ">(::GetProcAddress(g_library, \"" << function.name << "\"));" << std::endl;
-        std::cout << "    }();" << std::endl;
-        std::cout << "    if (!" << pointerName << ") {" << std::endl;
+        out << ')' << std::endl;
+        out << '{' << std::endl;
+        out << "    using " << prototypeName << " = decltype(&::" << function.name << ");" << std::endl;
+        out << "    static const auto " << pointerName << " = []() -> " << prototypeName << " {" << std::endl;
+        out << "        if (g_libraryNotAvailable) {" << std::endl;
+        out << "            return nullptr;" << std::endl;
+        out << "        }" << std::endl;
+        out << "        if (!g_library) {" << std::endl;
+        out << "            g_library = ::LoadLibraryExW(kDllFileName, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);" << std::endl;
+        out << "            if (!g_library) {" << std::endl;
+        out << "                g_libraryNotAvailable = true;" << std::endl;
+        out << "                return nullptr;" << std::endl;
+        out << "            }" << std::endl;
+        out << "        }" << std::endl;
+        out << "        return reinterpret_cast<" << prototypeName << ">(::GetProcAddress(g_library, \"" << function.name << "\"));" << std::endl;
+        out << "    }();" << std::endl;
+        out << "    if (!" << pointerName << ") {" << std::endl;
         if (function.resultType.empty() || function.resultType == "void") {
-            std::cout << "        return;" << std::endl;
+            out << "        return;" << std::endl;
         } else {
-            std::cout << "        return " << function.resultType << "{};" << std::endl;
+            out << "        return " << function.resultType << "{};" << std::endl;
         }
-        std::cout << "    }" << std::endl;
-        std::cout << "    return " << pointerName << '(';
+        out << "    }" << std::endl;
+        out << "    return " << pointerName << '(';
         for (std::size_t index = 0; index != function.parameters.size(); ++index) {
-            std::cout << "arg" << index + 1;
+            out << "arg" << index + 1;
             if (index < function.parameters.size() - 1) {
-                std::cout << ", ";
+                out << ", ";
             }
         }
-        std::cout << ");" << std::endl;
-        std::cout << '}' << std::endl;
-        std::cout << std::endl;
+        out << ");" << std::endl;
+        out << '}' << std::endl;
+        out << std::endl;
     }
     return true;
 }
 
 extern "C" int __stdcall main(int, char **)
 {
-    Functions functions = {};
-    if (!parseTranslationUnit("icu.h", functions) || functions.empty()) {
-        return EXIT_FAILURE;
-    }
-    if (!generateWrapper("icu.dll", functions)) {
-        return EXIT_FAILURE;
-    }
-    return EXIT_SUCCESS;
+    std::setlocale(LC_ALL, "en_US.UTF-8");
+#ifdef WIN32
+    ::SetConsoleCP(CP_UTF8);
+    ::SetConsoleOutputCP(CP_UTF8);
+#endif
+    SysCmdLine::Argument inputArgument("input-files");
+    inputArgument.setDisplayName("<header files>");
+    SysCmdLine::Option inputOption("input", "Header files to parse.");
+    inputOption.addArgument(inputArgument);
+    SysCmdLine::Argument outputArgument("output-file");
+    outputArgument.setDisplayName("<source file>");
+    SysCmdLine::Option outputOption("output", "The wrapper source file to generate.");
+    outputOption.addArgument(outputArgument);
+    SysCmdLine::Argument dllFileNameArgument("dll-filename");
+    dllFileNameArgument.setDisplayName("<DLL file name>");
+    SysCmdLine::Option dllFileNameOption("dll", "The DLL file name to load.");
+    dllFileNameOption.addArgument(dllFileNameArgument);
+    SysCmdLine::Command rootCommand(SysCmdLine::appName(), "A convenient tool to generate a wrapper layer for DLLs.");
+    rootCommand.addVersionOption("1.0.0.0");
+    rootCommand.addHelpOption(true, true);
+    rootCommand.addOption(inputOption);
+    rootCommand.addOption(outputOption);
+    rootCommand.addOption(dllFileNameOption);
+    rootCommand.setHandler([&inputArgument, &outputArgument, &dllFileNameArgument](const SysCmdLine::ParseResult &result) -> int {
+        const std::vector<SysCmdLine::Value> inputFiles = result.valuesForArgument(inputArgument);
+        const SysCmdLine::Value outputFile = result.valueForArgument(outputArgument);
+        const SysCmdLine::Value dllFileName = result.valueForArgument(dllFileNameArgument);
+        if (inputFiles.empty()) {
+            std::cerr << "You need to specify at least one valid header file path (including the file extension name).";
+            return EXIT_FAILURE;
+        }
+        if (outputFile.isEmpty()) {
+            std::cerr << "You need to specify a valid output file path (including the file extension name).";
+            return EXIT_FAILURE;
+        }
+        if (dllFileName.isEmpty()) {
+            std::cerr << "You need to specify a valid DLL file name (better to include the file extension name as well).";
+            return EXIT_FAILURE;
+        }
+        Functions allFunctions = {};
+        for (auto &&inputFile : std::as_const(inputFiles)) {
+            const std::string filePath = inputFile.toString();
+            Functions functions = {};
+            if (!parseTranslationUnit(filePath, functions) || functions.empty()) {
+                return EXIT_FAILURE;
+            }
+            allFunctions.insert(allFunctions.end(), functions.begin(), functions.end());
+        }
+        if (!generateWrapper(outputFile.toString(), dllFileName.toString(), allFunctions)) {
+            return EXIT_FAILURE;
+        }
+        return EXIT_SUCCESS;
+    });
+    SysCmdLine::Parser parser(rootCommand);
+    parser.setDisplayOptions(SysCmdLine::Parser::ShowOptionalOptionsOnUsage);
+    parser.setIntro(SysCmdLine::Parser::Prologue, "Thanks a lot for using DLL Wrapper Generator, a small tool from wangwenx190's utility tools collection.");
+    parser.setIntro(SysCmdLine::Parser::Epilogue, "Please checkout https://github.com/wangwenx190/dll-wrapper-generator/ for more information.");
+    return parser.invoke(SysCmdLine::commandLineArguments(), EXIT_FAILURE, SysCmdLine::Parser::IgnoreCommandCase | SysCmdLine::Parser::IgnoreOptionCase | SysCmdLine::Parser::AllowDosKeyValueOptions);
 }

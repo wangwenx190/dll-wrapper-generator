@@ -40,15 +40,76 @@
 namespace std
 {
 using stringlist = vector<string>;
+
+[[nodiscard]] static inline std::string to_string(const CXCallingConv cc)
+{
+    switch (cc) {
+    case CXCallingConv_Default:
+    case CXCallingConv_C:
+        return "__cdecl";
+    case CXCallingConv_X86StdCall:
+        return "__stdcall";
+    case CXCallingConv_X86FastCall:
+        return "__fastcall";
+    case CXCallingConv_X86ThisCall:
+        return "__thiscall";
+    case CXCallingConv_X86Pascal:
+        return "";
+    case CXCallingConv_X86RegCall:
+        return "";
+    case CXCallingConv_X86VectorCall:
+        return "__vectorcall";
+    default:
+        break;
+    }
+    return {};
 }
+}
+
+namespace DWG
+{
 
 struct Function
 {
     std::string name = {};
     std::string resultType = {};
     std::stringlist parameters = {};
+    std::string callingConvention = {};
+    
+    [[nodiscard]] inline bool empty() const {
+        return name.empty();
+    }
+    
+    inline void clear() {
+        name.clear();
+        name.shrink_to_fit();
+        resultType.clear();
+        resultType.shrink_to_fit();
+        parameters.clear();
+        parameters.shrink_to_fit();
+        callingConvention.clear();
+        callingConvention.shrink_to_fit();
+    }
 };
 using Functions = std::vector<Function>;
+
+struct Header
+{
+    std::string filename = {};
+    Functions functions = {};
+    
+    [[nodiscard]] inline bool empty() const {
+        return filename.empty();
+    }
+    
+    inline void clear() {
+        filename.clear();
+        filename.shrink_to_fit();
+        functions.clear();
+        functions.shrink_to_fit();
+    }
+};
+using Headers = std::vector<Header>;
 
 [[nodiscard]] static inline std::string toLower(const std::string_view str)
 {
@@ -70,12 +131,12 @@ using Functions = std::vector<Function>;
     return result;
 }
 
-[[nodiscard]] static inline bool isPointerType(const std::string_view type)
+[[nodiscard]] static inline constexpr bool isPointerType(const std::string_view type)
 {
     return type.ends_with('*');
 }
 
-[[nodiscard]] static inline bool isReferenceType(const std::string_view type)
+[[nodiscard]] static inline constexpr bool isReferenceType(const std::string_view type)
 {
     return type.ends_with('&');
 }
@@ -92,9 +153,14 @@ using Functions = std::vector<Function>;
     
     static Functions functions = {};
     static Function function = {};
+    static bool insideParameterList = false;
+    
+    // They are static variables after all, we need to ensure they are all default value.
+    functions.clear();
+    function.clear();
+    insideParameterList = false;
     
     const CXCursor cursor = ::clang_getTranslationUnitCursor(unit);
-    static bool insideParameterList = false;
     const uint32_t parseResult = ::clang_visitChildren(cursor,
         [](CXCursor currentCursor, CXCursor parentCursor, CXClientData clientData) -> CXChildVisitResult {
             static_cast<void>(parentCursor);
@@ -109,33 +175,39 @@ using Functions = std::vector<Function>;
                 if (visibility != CXVisibility_Default) {
                     return CXChildVisit_Continue;
                 }
-//                const CXAvailabilityKind availability = ::clang_getCursorAvailability(currentCursor);
-//                const CXLanguageKind language = ::clang_getCursorLanguage(currentCursor);
+                //const CXAvailabilityKind availability = ::clang_getCursorAvailability(currentCursor);
+                const CXLanguageKind language = ::clang_getCursorLanguage(currentCursor);
+                if (language != CXLanguage_C) {
+                    return CXChildVisit_Continue;
+                }
                 if (insideParameterList) {
                     insideParameterList = false;
                     functions.push_back(function);
                     function = {};
                 }
-                const CXString functionName = ::clang_getCursorSpelling(currentCursor);
-                function.name = ::clang_getCString(functionName);
-                ::clang_disposeString(functionName);
+                const CXType functionType = ::clang_getCursorType(currentCursor);
+                const CXString functionNameStr = ::clang_getCursorSpelling(currentCursor);
+                function.name = ::clang_getCString(functionNameStr);
+                ::clang_disposeString(functionNameStr);
                 const CXType resultType = ::clang_getCursorResultType(currentCursor);
                 const CXString resultStr = ::clang_getTypeSpelling(resultType);
                 function.resultType = ::clang_getCString(resultStr);
-                ::clang_disposeString(resultStr);                
-//                ::CXString pretty = ::clang_getCursorPrettyPrinted(currentCursor, nullptr);
-//                std::cout << "Pretty: " << ::clang_getCString(pretty) << std::endl;
-//                ::clang_disposeString(pretty);
+                ::clang_disposeString(resultStr);
+                const CXCallingConv callingConvention = ::clang_getFunctionTypeCallingConv(functionType);
+                function.callingConvention = std::to_string(callingConvention);
+//                ::CXString prettyStr = ::clang_getCursorPrettyPrinted(currentCursor, nullptr);
+//                std::cout << "Pretty: " << ::clang_getCString(prettyStr) << std::endl;
+//                ::clang_disposeString(prettyStr);
                 return CXChildVisit_Recurse;
             }
             case CXCursor_ParmDecl: {
                 if (!insideParameterList) {
                     insideParameterList = true;
                 }
-                const CXType type = ::clang_getCursorType(currentCursor);
-                const CXString str = ::clang_getTypeSpelling(type);
-                function.parameters.push_back(::clang_getCString(str));
-                ::clang_disposeString(str);
+                const CXType parameterType = ::clang_getCursorType(currentCursor);
+                const CXString parameterStr = ::clang_getTypeSpelling(parameterType);
+                function.parameters.push_back(::clang_getCString(parameterStr));
+                ::clang_disposeString(parameterStr);
                 return CXChildVisit_Recurse;
             }
             default:
@@ -227,6 +299,8 @@ using Functions = std::vector<Function>;
     std::cout << "The wrapper source is successfully generated." << std::endl;
     return true;
 }
+
+} // namespace DWG
 
 extern "C" int __stdcall main(int, char **)
 {

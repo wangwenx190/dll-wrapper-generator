@@ -54,9 +54,9 @@ using stringlist = vector<string>;
     case CXCallingConv_X86ThisCall:
         return "__thiscall";
     case CXCallingConv_X86Pascal:
-        return "";
+        return "__stdcall";
     case CXCallingConv_X86RegCall:
-        return "";
+        return "__register";
     case CXCallingConv_X86VectorCall:
         return "__vectorcall";
     default:
@@ -223,9 +223,9 @@ using Headers = std::vector<Header>;
     return true;
 }
 
-[[nodiscard]] static inline bool generateWrapper(const std::string_view filePath, const std::string_view dllFileName, const Functions &functions)
+[[nodiscard]] static inline bool generateWrapper(const std::string_view filePath, const std::string_view dllFileName, const bool sysDirOnly, const Headers &headers)
 {
-    if (filePath.empty() || dllFileName.empty() || functions.empty()) {
+    if (filePath.empty() || dllFileName.empty() || headers.empty()) {
         std::cerr << "generateWrapper: invalid parameter" << std::endl;
         return false;
     }
@@ -236,63 +236,88 @@ using Headers = std::vector<Header>;
     }
     out << "#include <windows.h>" << std::endl;
     out << std::endl;
-    out << "static constexpr const wchar_t kDllFileName[] = \"" << dllFileName << "\";" << std::endl;
+    out << "static constexpr const wchar_t g_libraryFileName[] = L\"" << dllFileName << "\";" << std::endl;
     out << "static constinit HMODULE g_library = nullptr;" << std::endl;
     out << "static constinit bool g_libraryNotAvailable = false;" << std::endl;
     out << std::endl;
-    for (auto &&function : std::as_const(functions)) {
-        out << "extern \"C\" " << function.resultType;
-        if (!(isPointerType(function.resultType) || isReferenceType(function.resultType))) {
-            out << ' ';
-        }
-        out << "__stdcall " << function.name << '(';
-        std::size_t parameterIndex = 1;
-        for (auto &&parameter : std::as_const(function.parameters)) {
-            out << parameter;
-            if (!(isPointerType(parameter) || isReferenceType(parameter))) {
-                out << ' ';
-            }
-            out << "arg" << parameterIndex;
-            if (parameterIndex < function.parameters.size()) {
-                ++parameterIndex;
-                out << ", ";
-            }
-        }
-        const std::string prototypeName = "PFN_" + toUpper(function.name);
-        const std::string pointerName = "pfn_" + toLower(function.name);
-        out << ')' << std::endl;
-        out << '{' << std::endl;
-        out << "    using " << prototypeName << " = decltype(&::" << function.name << ");" << std::endl;
-        out << "    static const auto " << pointerName << " = []() -> " << prototypeName << " {" << std::endl;
-        out << "        if (g_libraryNotAvailable) {" << std::endl;
-        out << "            return nullptr;" << std::endl;
-        out << "        }" << std::endl;
-        out << "        if (!g_library) {" << std::endl;
-        out << "            g_library = ::LoadLibraryExW(kDllFileName, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);" << std::endl;
-        out << "            if (!g_library) {" << std::endl;
-        out << "                g_libraryNotAvailable = true;" << std::endl;
-        out << "                return nullptr;" << std::endl;
-        out << "            }" << std::endl;
-        out << "        }" << std::endl;
-        out << "        return reinterpret_cast<" << prototypeName << ">(::GetProcAddress(g_library, \"" << function.name << "\"));" << std::endl;
-        out << "    }();" << std::endl;
-        out << "    if (!" << pointerName << ") {" << std::endl;
-        if (function.resultType.empty() || function.resultType == "void") {
-            out << "        return;" << std::endl;
+    const auto printCommentLine = [&out]() -> void {
+        out << "////////////////////////////////////////////////////" << std::endl;
+    };
+    const auto printLoadLibrary = [&out, sysDirOnly]() -> void {
+        out << "            g_library = ::LoadLibrary";
+        if (sysDirOnly) {
+            out << "ExW(g_libraryFileName, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32";
         } else {
-            out << "        return " << function.resultType << "{};" << std::endl;
-        }
-        out << "    }" << std::endl;
-        out << "    return " << pointerName << '(';
-        for (std::size_t index = 0; index != function.parameters.size(); ++index) {
-            out << "arg" << index + 1;
-            if (index < function.parameters.size() - 1) {
-                out << ", ";
-            }
+            out << "W(g_libraryFileName";
         }
         out << ");" << std::endl;
-        out << '}' << std::endl;
+    };
+    for (auto &&header : std::as_const(headers)) {
+        if (header.empty()) {
+            std::cerr << "generateWrapper: Empty header file. Skipping ..." << std::endl;
+            continue;
+        }
+        if (header.functions.empty()) {
+            std::cerr << "generateWrapper: No C exported functions. Skipping ..." << std::endl;
+            continue;
+        }
+        printCommentLine();
+        out << "#include <" << header.filename << '>' << std::endl;
         out << std::endl;
+        for (auto &&function : std::as_const(header.functions)) {
+            out << "extern \"C\" " << function.resultType;
+            if (!(isPointerType(function.resultType) || isReferenceType(function.resultType))) {
+                out << ' ';
+            }
+            out << function.callingConvention << ' ' << function.name << '(';
+            std::size_t parameterIndex = 1;
+            for (auto &&parameter : std::as_const(function.parameters)) {
+                out << parameter;
+                if (!(isPointerType(parameter) || isReferenceType(parameter))) {
+                    out << ' ';
+                }
+                out << "arg" << parameterIndex;
+                if (parameterIndex < function.parameters.size()) {
+                    ++parameterIndex;
+                    out << ", ";
+                }
+            }
+            const std::string prototypeName = "PFN_" + toUpper(function.name);
+            const std::string pointerName = "pfn_" + toLower(function.name);
+            out << ')' << std::endl;
+            out << '{' << std::endl;
+            out << "    using " << prototypeName << " = decltype(&::" << function.name << ");" << std::endl;
+            out << "    static const auto " << pointerName << " = []() -> " << prototypeName << " {" << std::endl;
+            out << "        if (g_libraryNotAvailable) {" << std::endl;
+            out << "            return nullptr;" << std::endl;
+            out << "        }" << std::endl;
+            out << "        if (!g_library) {" << std::endl;
+            printLoadLibrary();
+            out << "            if (!g_library) {" << std::endl;
+            out << "                g_libraryNotAvailable = true;" << std::endl;
+            out << "                return nullptr;" << std::endl;
+            out << "            }" << std::endl;
+            out << "        }" << std::endl;
+            out << "        return reinterpret_cast<" << prototypeName << ">(::GetProcAddress(g_library, \"" << function.name << "\"));" << std::endl;
+            out << "    }();" << std::endl;
+            out << "    if (!" << pointerName << ") {" << std::endl;
+            if (function.resultType.empty() || function.resultType == "void") {
+                out << "        return;" << std::endl;
+            } else {
+                out << "        return " << function.resultType << "{};" << std::endl;
+            }
+            out << "    }" << std::endl;
+            out << "    return " << pointerName << '(';
+            for (std::size_t index = 0; index != function.parameters.size(); ++index) {
+                out << "arg" << index + 1;
+                if (index < function.parameters.size() - 1) {
+                    out << ", ";
+                }
+            }
+            out << ");" << std::endl;
+            out << '}' << std::endl;
+            out << std::endl;
+        }
     }
     //out.flush();
     out.close();
@@ -321,12 +346,14 @@ extern "C" int __stdcall main(int, char **)
     dllFileNameArgument.setDisplayName("<DLL file name>");
     SysCmdLine::Option dllFileNameOption("dll", "The DLL file name to load.");
     dllFileNameOption.addArgument(dllFileNameArgument);
+    const SysCmdLine::Option sysDirOnlyOption("sys-dir-only", "Only load DLL from the system directory.");
     SysCmdLine::Command rootCommand(SysCmdLine::appName(), "A convenient tool to generate a wrapper layer for DLLs.");
     rootCommand.addVersionOption("1.0.0.0");
     rootCommand.addHelpOption(true, true);
     rootCommand.addOption(inputOption);
     rootCommand.addOption(outputOption);
     rootCommand.addOption(dllFileNameOption);
+    rootCommand.addOption(sysDirOnlyOption);
     rootCommand.setHandler([&](const SysCmdLine::ParseResult &result) -> int {
         const auto inputFiles = [&]() -> std::vector<SysCmdLine::Value> {
             const int optionCount = result.optionCount(inputOption);
@@ -353,18 +380,33 @@ extern "C" int __stdcall main(int, char **)
             std::cerr << "You need to specify a valid DLL file name (better to include the file extension name as well)." << std::endl;
             return EXIT_FAILURE;
         }
-        Functions allFunctions = {};
+        const bool sysDirOnly = result.optionIsSet(sysDirOnlyOption);
+        DWG::Headers headers = {};
         for (auto &&inputFile : std::as_const(inputFiles)) {
-            Functions functions = {};
-            if (!parseTranslationUnit(inputFile.toString(), functions) || functions.empty()) {
+            const std::string filename = inputFile.toString();
+            DWG::Functions functions = {};
+            if (!DWG::parseTranslationUnit(filename, functions) || functions.empty()) {
                 return EXIT_FAILURE;
             }
-            allFunctions.insert(allFunctions.end(), functions.begin(), functions.end());
+            DWG::Header header = {};
+            header.filename = [&filename]() -> std::string {
+                std::size_t index = filename.find_last_of('/');
+                if (index != std::string::npos) {
+                    return filename.substr(index + 1);
+                }
+                index = filename.find_last_of('\\');
+                if (index != std::string::npos) {
+                    return filename.substr(index + 1);
+                }
+                return filename;
+            }();
+            header.functions = functions;
+            headers.push_back(header);
         }
-        if (allFunctions.empty()) {
+        if (headers.empty()) {
             return EXIT_FAILURE;
         }
-        if (!generateWrapper(outputFile.toString(), dllFileName.toString(), allFunctions)) {
+        if (!DWG::generateWrapper(outputFile.toString(), dllFileName.toString(), sysDirOnly, headers)) {
             return EXIT_FAILURE;
         }
         return EXIT_SUCCESS;

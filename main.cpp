@@ -44,7 +44,7 @@ using stringlist = vector<string>;
 [[nodiscard]] static inline std::string to_string(const CXCallingConv cc)
 {
     switch (cc) {
-    case CXCallingConv_Default:
+    //case CXCallingConv_Default:
     case CXCallingConv_C:
         return "__cdecl";
     case CXCallingConv_X86StdCall:
@@ -327,7 +327,12 @@ using Headers = std::vector<Header>;
 
 } // namespace DWG
 
-extern "C" int __stdcall main(int, char **)
+extern "C" int
+#ifdef WIN32
+__stdcall
+#else
+#endif
+main(int, char **)
 {
     std::setlocale(LC_ALL, "en_US.UTF-8");
 #ifdef WIN32
@@ -337,16 +342,22 @@ extern "C" int __stdcall main(int, char **)
     SysCmdLine::Argument inputArgument("input-files");
     inputArgument.setDisplayName("<header files>");
     SysCmdLine::Option inputOption("input", "Header files to parse.");
+    inputOption.setRequired(true);
     inputOption.addArgument(inputArgument);
     SysCmdLine::Argument outputArgument("output-file");
     outputArgument.setDisplayName("<source file>");
     SysCmdLine::Option outputOption("output", "The wrapper source file to generate.");
+    outputOption.setRequired(true);
+    outputOption.setMaxOccurrence(1);
     outputOption.addArgument(outputArgument);
     SysCmdLine::Argument dllFileNameArgument("dll-filename");
     dllFileNameArgument.setDisplayName("<DLL file name>");
     SysCmdLine::Option dllFileNameOption("dll", "The DLL file name to load.");
+    dllFileNameOption.setRequired(true);
+    dllFileNameOption.setMaxOccurrence(1);
     dllFileNameOption.addArgument(dllFileNameArgument);
-    const SysCmdLine::Option sysDirOnlyOption("sys-dir-only", "Only load DLL from the system directory.");
+    SysCmdLine::Option sysDirOnlyOption("sys-dir-only", "Only load DLL from the system directory.");
+    sysDirOnlyOption.setMaxOccurrence(1);
     SysCmdLine::Command rootCommand(SysCmdLine::appName(), "A convenient tool to generate a wrapper layer for DLLs.");
     rootCommand.addVersionOption("1.0.0.0");
     rootCommand.addHelpOption(true, true);

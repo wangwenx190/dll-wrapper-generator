@@ -208,15 +208,19 @@ using Headers = std::vector<Header>;
                 if (language != CXLanguage_C) {
                     return CXChildVisit_Continue;
                 }
+                const CXString functionNameStr = ::clang_getCursorSpelling(currentCursor);
+                const std::string functionName = ::clang_getCString(functionNameStr);
+                ::clang_disposeString(functionNameStr);
+                if (functionName.starts_with('_')) {
+                    return CXChildVisit_Continue;
+                }
                 if (insideParameterList) {
                     insideParameterList = false;
                     functions.push_back(function);
-                    function = {};
+                    function.clear();
                 }
+                function.name = functionName;
                 const CXType functionType = ::clang_getCursorType(currentCursor);
-                const CXString functionNameStr = ::clang_getCursorSpelling(currentCursor);
-                function.name = ::clang_getCString(functionNameStr);
-                ::clang_disposeString(functionNameStr);
                 const CXType resultType = ::clang_getCursorResultType(currentCursor);
                 const CXString resultStr = ::clang_getTypeSpelling(resultType);
                 function.resultType = ::clang_getCString(resultStr);
@@ -229,9 +233,7 @@ using Headers = std::vector<Header>;
                 return CXChildVisit_Recurse;
             }
             case CXCursor_ParmDecl: {
-                if (!insideParameterList) {
-                    insideParameterList = true;
-                }
+                insideParameterList = true;
                 const CXType parameterType = ::clang_getCursorType(currentCursor);
                 const CXString parameterStr = ::clang_getTypeSpelling(parameterType);
                 function.parameters.push_back(::clang_getCString(parameterStr));
@@ -276,7 +278,7 @@ using Headers = std::vector<Header>;
     out << "#else" << std::endl;
     out << "#define DWG_API" << std::endl;
     out << "using DWG_LibraryHandle = void *;" << std::endl;
-    out << "using DWG_FunctionPointer = void(*)();" << std::endl;
+    out << "using DWG_FunctionPointer = void(DWG_API *)();" << std::endl;
     out << "#endif" << std::endl;
     out << "#ifdef WIN32" << std::endl;
     out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return ::LoadLibrary";
@@ -402,6 +404,7 @@ using Headers = std::vector<Header>;
         out << '}' << std::endl;
     }
     out << "#endif" << std::endl;
+    //out.flush();
     out.close();
     std::cout << "The wrapper source is successfully generated." << std::endl;
     return true;

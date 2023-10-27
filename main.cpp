@@ -417,7 +417,17 @@ main(int, char **)
         if (headers.empty()) {
             return EXIT_FAILURE;
         }
-        if (!DWG::generateWrapper(outputFile.toString(), dllFileName.toString(), sysDirOnly, headers)) {
+        std::string dllFileNameWithoutPath = dllFileName.toString();
+        std::size_t lastSeparatorPos = dllFileNameWithoutPath.find_last_of('/');
+        if (lastSeparatorPos != std::string::npos) {
+            dllFileNameWithoutPath.erase(0, lastSeparatorPos + 1);
+        } else {
+            lastSeparatorPos = dllFileNameWithoutPath.find_last_of('\\');
+            if (lastSeparatorPos != std::string::npos) {
+                dllFileNameWithoutPath.erase(0, lastSeparatorPos + 1);
+            }
+        }
+        if (!DWG::generateWrapper(outputFile.toString(), dllFileNameWithoutPath, sysDirOnly, headers)) {
             return EXIT_FAILURE;
         }
         return EXIT_SUCCESS;

@@ -267,141 +267,87 @@ using Headers = std::vector<Header>;
     out << "#ifndef __EMSCRIPTEN__" << std::endl;
     out << "#ifdef WIN32" << std::endl;
     out << "#  include <windows.h>" << std::endl;
+    out << "#  define DWG_API __stdcall" << std::endl;
     out << "#else" << std::endl;
     out << "#  include <dlfcn.h>" << std::endl;
+    out << "#  define DWG_API" << std::endl;
     out << "#endif" << std::endl;
-    out << "#include <array>" << std::endl;
-    out << "#ifdef WIN32" << std::endl;
-    out << "#define DWG_API WINAPI" << std::endl;
-    out << "using DWG_LibraryHandle = HMODULE;" << std::endl;
-    out << "using DWG_FunctionPointer = FARPROC;" << std::endl;
-    out << "#else" << std::endl;
-    out << "#define DWG_API" << std::endl;
+    out << "#include <unordered_map>" << std::endl;
+    out << "#include <string>" << std::endl;
     out << "using DWG_LibraryHandle = void *;" << std::endl;
     out << "using DWG_FunctionPointer = void(DWG_API *)();" << std::endl;
-    out << "#endif" << std::endl;
     out << "#ifdef WIN32" << std::endl;
-    out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return ::LoadLibrary";
+    out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return reinterpret_cast<DWG_LibraryHandle>(::LoadLibrary";
     if (sysDirOnly) {
         out << "ExA(path.data(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32";
     } else {
         out << "A(path.data()";
     }
-    out << "); }" << std::endl;
-    out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_GetProcAddress(const DWG_LibraryHandle library, const std::string_view name) { return ::GetProcAddress(library, name.data()); }" << std::endl;
-    out << "static inline void DWG_API DWG_FreeLibrary(const DWG_LibraryHandle library) { ::FreeLibrary(library); }" << std::endl;
+    out << ")); }" << std::endl;
+    out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_GetProcAddress(const DWG_LibraryHandle library, const std::string_view name) { return reinterpret_cast<DWG_FunctionPointer>(::GetProcAddress(library, name.data())); }" << std::endl;
+    out << "static inline void DWG_API DWG_FreeLibrary(const DWG_LibraryHandle library) { ::FreeLibrary(reinterpret_cast<HMODULE>(library)); }" << std::endl;
     out << "#else" << std::endl;
     out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return ::dlopen(path.data(), RTLD_LAZY); }" << std::endl;
     out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_GetProcAddress(const DWG_LibraryHandle library, const std::string_view name) { reinterpret_cast<DWG_FunctionPointer>(::dlsym(library, name.data())); }" << std::endl;
     out << "static inline void DWG_API DWG_FreeLibrary(const DWG_LibraryHandle library) { ::dlclose(library); }" << std::endl;
     out << "#endif" << std::endl;
-    std::stringlist headerFiles = {};
-    Functions functions = {};
-    std::uint8_t iterationCount = 0;
-    static constexpr const auto maxIterationTimes = std::uint8_t{ 10 };
-    out << "enum class DWG_Function : std::uint64_t {" << std::endl;
-    for (auto &&header : std::as_const(headers)) {
-        headerFiles.push_back(header.filename);
-        for (std::size_t index = 0; index != header.functions.size(); ++index) {
-            const Function &function = header.functions.at(index);
-            functions.push_back(function);
-            if (iterationCount == 0) {
-                out << "    ";
-            } else {
-                out << ' ';
-            }
-            out << function.name;
-            if (index < header.functions.size() - 1) {
-                out << ',';
-            }
-            ++iterationCount;
-            if (iterationCount >= maxIterationTimes) {
-                iterationCount = 0;
-                out << std::endl;
-            }
-        }
-    }
-    if (iterationCount != 0) {
-        iterationCount = 0;
-        out << std::endl;
-    }
-    out << "};" << std::endl;
-    out << "static std::array<DWG_FunctionPointer, " << functions.size() << "> DWG_FunctionTable = {" << std::endl;
-    for (std::size_t index = 0; index != functions.size(); ++index) {
-        if (iterationCount == 0) {
-            out << "    ";
-        } else {
-            out << ' ';
-        }
-        out << "nullptr";
-        if (index < functions.size() - 1) {
-            out << ',';
-        }
-        ++iterationCount;
-        if (iterationCount >= maxIterationTimes) {
-            iterationCount = 0;
-            out << std::endl;
-        }
-    }
-    if (iterationCount != 0) {
-        iterationCount = 0;
-        out << std::endl;
-    }
-    out << "};" << std::endl;
-    out << "static inline void DWG_Initialize() {" << std::endl;
-    out << "    static bool tried = false; if (tried) return; tried = true;" << std::endl;
+    out << "static std::unordered_map<std::string, DWG_FunctionPointer> DWG_FunctionHash{};" << std::endl;
+    out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_TryGetLibrary() {" << std::endl;
     out << "#ifdef WIN32" << std::endl;
-    out << "    const auto library = ::DWG_LoadLibrary(\"" << dllFileName << ".dll\");" << std::endl;
+    out << "    static const auto library = ::DWG_LoadLibrary(\"" << dllFileName << ".dll\");" << std::endl;
     out << "#elif defined(__APPLE__)" << std::endl;
-    out << "    const auto library = ::DWG_LoadLibrary(\"lib" << dllFileName << ".dylib\");" << std::endl;
+    out << "    static const auto library = ::DWG_LoadLibrary(\"lib" << dllFileName << ".dylib\");" << std::endl;
     out << "#else" << std::endl;
-    out << "    const auto library = ::DWG_LoadLibrary(\"lib" << dllFileName << ".so\");" << std::endl;
+    out << "    static const auto library = ::DWG_LoadLibrary(\"lib" << dllFileName << ".so\");" << std::endl;
     out << "#endif" << std::endl;
-    out << "    if (!library) return;" << std::endl;
-    for (std::size_t index = 0; index != functions.size(); ++index) {
-        out << "    ::DWG_FunctionTable[" << index << "] = ::DWG_GetProcAddress(library, \"" << functions.at(index).name << "\");" << std::endl;
-    }
+    out << "    return library;" << std::endl;
     out << '}' << std::endl;
-    for (auto &&header : std::as_const(headerFiles)) {
-        out << "#include <" << header << '>' << std::endl;
+    out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_TryGetSymbol(const std::string_view name) {" << std::endl;
+    out << "    auto it = DWG_FunctionHash.find(std::string(name));" << std::endl;
+    out << "    if (it == DWG_FunctionHash.end()) { if (const auto library = ::DWG_TryGetLibrary()) { it = DWG_FunctionHash.insert(std::make_pair(std::string(name), ::DWG_GetProcAddress(library, name.data()))); } else { it = DWG_FunctionHash.insert(std::make_pair(std::string(name), nullptr)); } }" << std::endl;
+    out << "    return it.second;" << std::endl;
+    out << '}' << std::endl;
+    for (auto &&header : std::as_const(headers)) {
+        out << "#include <" << header.filename << '>' << std::endl;
     }
-    for (auto &&function : std::as_const(functions)) {
-        out << "extern \"C\" " << function.resultType;
-        if (!(isPointerType(function.resultType) || isReferenceType(function.resultType))) {
-            out << ' ';
-        }
-        out << function.callingConvention << ' ' << function.name << '(';
-        std::size_t parameterIndex = 1;
-        for (auto &&parameter : std::as_const(function.parameters)) {
-            out << parameter;
-            if (!(isPointerType(parameter) || isReferenceType(parameter))) {
+    for (auto &&header : std::as_const(headers)) {
+        for (auto &&function : std::as_const(header.functions)) {
+            out << "extern \"C\" " << function.resultType;
+            if (!(isPointerType(function.resultType) || isReferenceType(function.resultType))) {
                 out << ' ';
             }
-            out << "arg" << parameterIndex;
-            if (parameterIndex < function.parameters.size()) {
-                ++parameterIndex;
-                out << ", ";
+            out << function.callingConvention << ' ' << function.name << '(';
+            std::size_t parameterIndex = 1;
+            for (auto &&parameter : std::as_const(function.parameters)) {
+                out << parameter;
+                if (!(isPointerType(parameter) || isReferenceType(parameter))) {
+                    out << ' ';
+                }
+                out << "arg" << parameterIndex;
+                if (parameterIndex < function.parameters.size()) {
+                    ++parameterIndex;
+                    out << ", ";
+                }
             }
-        }
-        out << ") {" << std::endl;
-        out << "    ::DWG_Initialize();" << std::endl;
-        out << "    static const auto function = reinterpret_cast<decltype(&::" << function.name << ")>(::DWG_FunctionTable[static_cast<std::uint64_t>(::DWG_Function::" << function.name << ")]);" << std::endl;
-        out << "    if (!function) ";
-        if (function.resultType.empty() || function.resultType == "void") {
-            out << "return";
-        } else {
-            out << "return " << function.resultType << "{}";
-        }
-        out << ';' << std::endl;
-        out << "    return function(";
-        for (std::size_t index = 0; index != function.parameters.size(); ++index) {
-            out << "arg" << index + 1;
-            if (index < function.parameters.size() - 1) {
-                out << ", ";
+            out << ") {" << std::endl;
+            out << "    static const auto function = reinterpret_cast<decltype(&::" << function.name << ")>(::DWG_TryGetSymbol(\"" << function.name << "\"));" << std::endl;
+            out << "    if (!function) ";
+            if (function.resultType.empty() || function.resultType == "void") {
+                out << "return";
+            } else {
+                out << "return " << function.resultType << "{}";
             }
+            out << ';' << std::endl;
+            out << "    return function(";
+            for (std::size_t index = 0; index != function.parameters.size(); ++index) {
+                out << "arg" << index + 1;
+                if (index < function.parameters.size() - 1) {
+                    out << ", ";
+                }
+            }
+            out << ");" << std::endl;
+            out << '}' << std::endl;
         }
-        out << ");" << std::endl;
-        out << '}' << std::endl;
     }
     out << "#endif" << std::endl;
     //out.flush();

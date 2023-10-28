@@ -305,7 +305,7 @@ using Headers = std::vector<Header>;
     out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_TryGetSymbol(const std::string_view name) {" << std::endl;
     out << "    auto it = DWG_FunctionHash.find(std::string(name));" << std::endl;
     out << "    if (it == DWG_FunctionHash.end()) { if (const auto library = ::DWG_TryGetLibrary()) { it = DWG_FunctionHash.insert(std::make_pair(std::string(name), ::DWG_GetProcAddress(library, name.data()))); } else { it = DWG_FunctionHash.insert(std::make_pair(std::string(name), nullptr)); } }" << std::endl;
-    out << "    return it.second;" << std::endl;
+    out << "    return it->second;" << std::endl;
     out << '}' << std::endl;
     for (auto &&header : std::as_const(headers)) {
         out << "#include <" << header.filename << '>' << std::endl;

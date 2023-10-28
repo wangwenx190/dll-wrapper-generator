@@ -277,15 +277,15 @@ using Headers = std::vector<Header>;
     out << "using DWG_LibraryHandle = void *;" << std::endl;
     out << "using DWG_FunctionPointer = void(DWG_API *)();" << std::endl;
     out << "#ifdef WIN32" << std::endl;
-    out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return reinterpret_cast<DWG_LibraryHandle>(::LoadLibrary";
+    out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return ::LoadLibrary";
     if (sysDirOnly) {
         out << "ExA(path.data(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32";
     } else {
         out << "A(path.data()";
     }
-    out << ")); }" << std::endl;
-    out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_GetProcAddress(const DWG_LibraryHandle library, const std::string_view name) { return reinterpret_cast<DWG_FunctionPointer>(::GetProcAddress(library, name.data())); }" << std::endl;
-    out << "static inline void DWG_API DWG_FreeLibrary(const DWG_LibraryHandle library) { ::FreeLibrary(reinterpret_cast<HMODULE>(library)); }" << std::endl;
+    out << "); }" << std::endl;
+    out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_GetProcAddress(const DWG_LibraryHandle library, const std::string_view name) { return reinterpret_cast<DWG_FunctionPointer>(::GetProcAddress(static_cast<HMODULE>(library), name.data())); }" << std::endl;
+    out << "static inline void DWG_API DWG_FreeLibrary(const DWG_LibraryHandle library) { ::FreeLibrary(static_cast<HMODULE>(library)); }" << std::endl;
     out << "#else" << std::endl;
     out << "[[nodiscard]] static inline DWG_LibraryHandle DWG_API DWG_LoadLibrary(const std::string_view path) { return ::dlopen(path.data(), RTLD_LAZY); }" << std::endl;
     out << "[[nodiscard]] static inline DWG_FunctionPointer DWG_API DWG_GetProcAddress(const DWG_LibraryHandle library, const std::string_view name) { reinterpret_cast<DWG_FunctionPointer>(::dlsym(library, name.data())); }" << std::endl;

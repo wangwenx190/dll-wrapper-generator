@@ -108,7 +108,7 @@ setup_compile_params(
     SPECTRE
     EHCONTGUARD
     PERMISSIVE
-    INTELCET
+    #INTELCET # Crash on many PCs ...
     INTELJCC
     CFGUARD
     FORCE_LTO

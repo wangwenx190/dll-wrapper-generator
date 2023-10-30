@@ -432,19 +432,9 @@ main(int, char **)
     rootCommand.addOption(dllFileNameOption);
     rootCommand.addOption(sysDirOnlyOption);
     rootCommand.setHandler([&](const SysCmdLine::ParseResult &result) -> int {
-        const auto inputFiles = [&]() -> std::vector<SysCmdLine::Value> {
-            const int optionCount = result.optionCount(inputOption);
-            if (optionCount <= 0) {
-                return {};
-            }
-            std::vector<SysCmdLine::Value> values = {};
-            for (int index = 0; index != optionCount; ++index) {
-                values.push_back(result.valueForOption(inputOption, inputArgument, index));
-            }
-            return values;
-        }();
-        const SysCmdLine::Value outputFile = result.valueForOption(outputOption, outputArgument);
-        const SysCmdLine::Value dllFileName = result.valueForOption(dllFileNameOption, dllFileNameArgument);
+        const std::vector<SysCmdLine::Value> inputFiles = result.valuesForOption(inputOption);
+        const SysCmdLine::Value outputFile = result.valueForOption(outputOption);
+        const SysCmdLine::Value dllFileName = result.valueForOption(dllFileNameOption);
         if (inputFiles.empty()) {
             std::cerr << "You need to specify at least one valid header file path (including the file extension name)." << std::endl;
             return EXIT_FAILURE;
@@ -481,7 +471,7 @@ main(int, char **)
     });
     SysCmdLine::Parser parser(rootCommand);
     parser.setDisplayOptions(SysCmdLine::Parser::ShowOptionalOptionsOnUsage);
-    parser.setIntro(SysCmdLine::Parser::Prologue, "Thanks a lot for using DLL Wrapper Generator, a small tool from wangwenx190's utility tools collection.");
-    parser.setIntro(SysCmdLine::Parser::Epilogue, "Please checkout https://github.com/wangwenx190/dll-wrapper-generator/ for more information.");
-    return parser.invoke(SysCmdLine::commandLineArguments(), EXIT_FAILURE, SysCmdLine::Parser::IgnoreCommandCase | SysCmdLine::Parser::IgnoreOptionCase | SysCmdLine::Parser::AllowDosKeyValueOptions);
+    parser.setPrologue("Thanks a lot for using DLL Wrapper Generator, a small tool from wangwenx190's utility tools collection.");
+    parser.setEpilogue("Please checkout https://github.com/wangwenx190/dll-wrapper-generator/ for more information.");
+    return parser.invoke(SysCmdLine::commandLineArguments(), EXIT_FAILURE, SysCmdLine::Parser::IgnoreCommandCase | SysCmdLine::Parser::IgnoreOptionCase | SysCmdLine::Parser::AllowDosShortOptions);
 }

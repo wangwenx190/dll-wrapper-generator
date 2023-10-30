@@ -407,23 +407,22 @@ main(int, char **)
     std::setlocale(LC_ALL, "en_US.UTF-8");
     SysCmdLine::Argument inputArgument("input-files");
     inputArgument.setDisplayName("<header files>");
+    inputArgument.setMultiValueEnabled(true);
     SysCmdLine::Option inputOption("input", "Header files to parse.");
     inputOption.setRequired(true);
+    //inputOption.setUnlimitedOccurrence();
     inputOption.addArgument(inputArgument);
     SysCmdLine::Argument outputArgument("output-file");
     outputArgument.setDisplayName("<source file>");
     SysCmdLine::Option outputOption("output", "The wrapper source file to generate.");
     outputOption.setRequired(true);
-    outputOption.setMaxOccurrence(1);
     outputOption.addArgument(outputArgument);
     SysCmdLine::Argument dllFileNameArgument("dll-filename");
     dllFileNameArgument.setDisplayName("<DLL file name>");
     SysCmdLine::Option dllFileNameOption("dll", "The DLL file name to load.");
     dllFileNameOption.setRequired(true);
-    dllFileNameOption.setMaxOccurrence(1);
     dllFileNameOption.addArgument(dllFileNameArgument);
-    SysCmdLine::Option sysDirOnlyOption("sys-dir-only", "Only load DLL from the system directory.");
-    sysDirOnlyOption.setMaxOccurrence(1);
+    const SysCmdLine::Option sysDirOnlyOption("sys-dir-only", "Only load DLL from the system directory.");
     SysCmdLine::Command rootCommand(SysCmdLine::appName(), "A convenient tool to generate a wrapper layer for DLLs.");
     rootCommand.addVersionOption("1.0.0.0");
     rootCommand.addHelpOption(true, true);
@@ -469,6 +468,7 @@ main(int, char **)
         }
         return EXIT_SUCCESS;
     });
+    SYSCMDLINE_ASSERT_COMMAND(rootCommand);
     SysCmdLine::Parser parser(rootCommand);
     parser.setDisplayOptions(SysCmdLine::Parser::ShowOptionalOptionsOnUsage);
     parser.setPrologue("Thanks a lot for using DLL Wrapper Generator, a small tool from wangwenx190's utility tools collection.");

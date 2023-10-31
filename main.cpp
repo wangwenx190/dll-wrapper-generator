@@ -431,7 +431,7 @@ main(int, char **)
     rootCommand.addOption(dllFileNameOption);
     rootCommand.addOption(sysDirOnlyOption);
     rootCommand.setHandler([&](const SysCmdLine::ParseResult &result) -> int {
-        const std::vector<SysCmdLine::Value> inputFiles = result.valuesForOption(inputOption);
+        const std::vector<SysCmdLine::Value> inputFiles = result.option(inputOption).allValues();
         const SysCmdLine::Value outputFile = result.valueForOption(outputOption);
         const SysCmdLine::Value dllFileName = result.valueForOption(dllFileNameOption);
         if (inputFiles.empty()) {
